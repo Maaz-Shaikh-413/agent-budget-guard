@@ -2,8 +2,9 @@
 
 import json
 import sqlite3
+import csv
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Iterator, Optional
 
@@ -85,6 +86,46 @@ def load_codex_usage_daily(database: Path = DEFAULT_IMPORT_DB, limit: int = 7) -
         (day.isoformat(), *by_day.get(day.isoformat(), (0, 0, 0, 0)))
         for day in (latest - timedelta(days=offset) for offset in range(limit))
     ]
+
+
+def export_codex_usage_csv(database: Path, output: Path) -> int:
+    """Export token-only Codex usage rows to a spreadsheet-friendly CSV."""
+    columns = ["event_timestamp_utc", "date_utc", "model", "input_tokens",
+               "cached_input_tokens", "output_tokens", "total_tokens"]
+    rows = []
+    if database.exists():
+        with sqlite3.connect(database) as conn:
+            available = {row[1] for row in conn.execute("PRAGMA table_info(usage)")}
+            required = {"model", "input_tokens", "output_tokens"}
+            if not required.issubset(available):
+                raise ValueError("Codex usage ledger has an unexpected schema")
+            timestamp = "event_timestamp" if "event_timestamp" in available else "NULL"
+            cached = "cached_input_tokens" if "cached_input_tokens" in available else "0"
+            rows = conn.execute(
+                f"SELECT {timestamp}, model, input_tokens, {cached}, output_tokens FROM usage "
+                "ORDER BY event_timestamp, model" if "event_timestamp" in available
+                else f"SELECT {timestamp}, model, input_tokens, {cached}, output_tokens FROM usage ORDER BY model"
+            ).fetchall()
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("w", encoding="utf-8-sig", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(columns)
+        for raw_timestamp, model, inputs, cached, outputs in rows:
+            timestamp_utc = ""
+            day_utc = ""
+            if raw_timestamp:
+                try:
+                    parsed = datetime.fromisoformat(str(raw_timestamp).replace("Z", "+00:00"))
+                    if parsed.tzinfo is not None:
+                        utc = parsed.astimezone(timezone.utc)
+                        timestamp_utc = utc.isoformat(timespec="auto").replace("+00:00", "Z")
+                        day_utc = utc.date().isoformat()
+                except ValueError:
+                    pass
+            inputs, cached, outputs = int(inputs or 0), int(cached or 0), int(outputs or 0)
+            writer.writerow([timestamp_utc, day_utc, model, inputs, cached, outputs, inputs + outputs])
+    return len(rows)
 
 
 @dataclass(frozen=True)

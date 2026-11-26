@@ -21,6 +21,7 @@ from agent_budget_guard.codex_reader import (
     import_codex_usage,
     load_codex_usage_daily,
     load_codex_usage_totals,
+    export_codex_usage_csv,
 )
 from agent_budget_guard.dashboard import daily_token_chart, total_tokens
 from agent_budget_guard.budget import (
@@ -239,6 +240,24 @@ def codex_usage(
         console.print(f"[bold]{label}:[/bold] ${cost:.6f}")
     if pricing_labels:
         console.print(f"Pricing model(s): {', '.join(sorted(pricing_labels))}")
+
+
+@app.command()
+def export(
+    format: str = typer.Option("csv", "--format", help="Export format (csv)"),
+    output: Path = typer.Option(Path("codex-usage.csv"), "--output", help="Output file path"),
+    database: Path = typer.Option(DEFAULT_IMPORT_DB, "--database", help="Path to the existing Codex usage SQLite ledger"),
+):
+    """Export token-only Codex usage records."""
+    if format.lower() != "csv":
+        console.print("[red]Unsupported export format. Choose csv.[/red]")
+        raise typer.Exit(code=1)
+    try:
+        count = export_codex_usage_csv(database, output)
+    except (ValueError, OSError) as error:
+        console.print(f"[red]Could not export Codex usage:[/red] {error}")
+        raise typer.Exit(code=1)
+    console.print(f"[green]Exported {count} usage record(s) to {output}.[/green]")
 
 
 @app.command()

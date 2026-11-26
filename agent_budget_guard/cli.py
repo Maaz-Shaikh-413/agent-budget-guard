@@ -23,6 +23,13 @@ from agent_budget_guard.codex_reader import (
     load_codex_usage_totals,
 )
 from agent_budget_guard.dashboard import daily_token_chart, total_tokens
+from agent_budget_guard.budget import (
+    DEFAULT_CONFIG_FILE,
+    calculate_token_budget_status,
+    load_monthly_budget,
+    monthly_token_usage,
+    set_monthly_budget,
+)
 
 app = typer.Typer(
     help="Monitor AI coding agent budgets.",
@@ -99,6 +106,52 @@ def record(
         f"[green]Recorded usage:[/green] {model} | "
         f"input={input_tokens} | output={output_tokens}"
     )
+
+
+def _print_token_budget_status(budget: int, used: int) -> None:
+    result = calculate_token_budget_status(used, budget)
+    console.print(f"[bold]Monthly token budget:[/bold] {budget}")
+    console.print(f"[bold]Current month input + output tokens:[/bold] {used}")
+    console.print(f"[bold]Remaining tokens:[/bold] {result['remaining']}")
+    console.print(f"[bold]Percentage used:[/bold] {result['percentage']:.1f}%")
+    if result["exceeded"]:
+        console.print("[bold red]Monthly token budget exceeded.[/bold red]")
+    elif result["warning"]:
+        console.print("[bold yellow]Warning: monthly token usage has reached 80% of the budget.[/bold yellow]")
+    else:
+        console.print("[green]Monthly token usage is below 80% of the budget.[/green]")
+
+
+@app.command()
+def budget(
+    tokens: int = typer.Option(..., "--tokens", help="Monthly input and output token budget"),
+    config_file: Path = typer.Option(DEFAULT_CONFIG_FILE, "--config-file", help="Path to local budget config JSON"),
+):
+    """Configure the monthly token budget."""
+    try:
+        set_monthly_budget(tokens, config_file)
+    except (ValueError, OSError) as error:
+        console.print(f"[red]{error}[/red]")
+        raise typer.Exit(code=1)
+    console.print(f"[green]Monthly token budget set to {tokens}.[/green]")
+
+
+@app.command("budget-status")
+def budget_status_command(
+    database: Path = typer.Option(DEFAULT_IMPORT_DB, "--database", help="Path to the Codex usage SQLite ledger"),
+    config_file: Path = typer.Option(DEFAULT_CONFIG_FILE, "--config-file", help="Path to local budget config JSON"),
+):
+    """Show current month's token usage against the configured budget."""
+    try:
+        configured = load_monthly_budget(config_file)
+        if configured is None:
+            console.print("No monthly token budget configured. Set one with: agent-budget-guard budget --tokens <count>")
+            return
+        used = monthly_token_usage(database)
+        _print_token_budget_status(configured, used)
+    except (ValueError, OSError) as error:
+        console.print(f"[red]Could not read token budget status:[/red] {error}")
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -200,6 +253,7 @@ def dashboard(
         "--pricing-file",
         help="Path to model pricing JSON",
     ),
+    config_file: Path = typer.Option(DEFAULT_CONFIG_FILE, "--config-file", help="Path to local budget config JSON"),
 ):
     """Show aggregate Codex usage from the local usage ledger."""
     try:
@@ -212,6 +266,8 @@ def dashboard(
             if not isinstance(pricing, dict):
                 raise ValueError("Pricing JSON must be an object keyed by exact model name")
         cost, cost_incomplete = calculate_codex_cost(totals, pricing)
+        configured_budget = load_monthly_budget(config_file)
+        month_used = monthly_token_usage(database) if configured_budget is not None else 0
     except (ValueError, KeyError, TypeError, json.JSONDecodeError, OSError) as error:
         console.print(f"[red]Could not read Codex dashboard data:[/red] {error}")
         raise typer.Exit(code=1)
@@ -222,6 +278,9 @@ def dashboard(
     console.print(f"[bold]Input tokens:[/bold] {input_total}")
     console.print(f"[bold]Cached input tokens:[/bold] {cached_input_total}")
     console.print(f"[bold]Output tokens:[/bold] {output_total}")
+    if configured_budget is not None:
+        console.print("[bold]Monthly token budget status[/bold]")
+        _print_token_budget_status(configured_budget, month_used)
     missing_models = sorted(set(totals).difference(pricing))
     if missing_models or cost_incomplete:
         reasons = []

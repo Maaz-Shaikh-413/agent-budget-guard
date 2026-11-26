@@ -58,8 +58,16 @@ def load_codex_usage_totals(database: Path = DEFAULT_IMPORT_DB) -> tuple:
     return totals, int(count)
 
 
-def load_codex_usage_daily(database: Path = DEFAULT_IMPORT_DB, limit: int = 7) -> Optional[list]:
-    """Return a recent UTC-date window, or None when the ledger lacks timestamps."""
+def load_codex_usage_daily(
+    database: Path = DEFAULT_IMPORT_DB,
+    limit: int = 7,
+    end_date: Optional[date] = None,
+) -> Optional[list]:
+    """Return a recent UTC-date window, or None when the ledger lacks timestamps.
+
+    By default the window ends on the latest usage date, preserving the
+    terminal dashboard behavior. Callers may supply an end date to anchor it.
+    """
     if not database.exists():
         return []
     with sqlite3.connect(database) as conn:
@@ -75,13 +83,13 @@ def load_codex_usage_daily(database: Path = DEFAULT_IMPORT_DB, limit: int = 7) -
             "GROUP BY date(event_timestamp) ORDER BY date(event_timestamp) DESC LIMIT ?",
             (limit,),
         ).fetchall()
-    if not rows:
-        return []
     by_day = {
         day: (int(inputs or 0), int(cached or 0), int(outputs or 0), int(count))
         for day, inputs, cached, outputs, count in rows
     }
-    latest = date.fromisoformat(rows[0][0])
+    latest = end_date or (date.fromisoformat(rows[0][0]) if rows else None)
+    if latest is None:
+        return []
     return [
         (day.isoformat(), *by_day.get(day.isoformat(), (0, 0, 0, 0)))
         for day in (latest - timedelta(days=offset) for offset in range(limit))

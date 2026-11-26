@@ -9,6 +9,7 @@ It is intended to make coding-agent usage easier to inspect and track over time.
 - **Codex usage import:** Reads token usage records from `~/.codex/sessions` and avoids importing the same rollout record more than once.
 - **SQLite usage ledger:** Stores imported usage locally in `.agent-budget-guard/codex_usage.sqlite` in the project directory.
 - **Terminal dashboard:** Shows record, input, cached input, and output totals, per-model totals, and an estimated API-equivalent cost when pricing is available.
+- **Local web dashboard:** Serves aggregate Codex token totals, monthly budget status, and a seven-date input/output chart at `http://127.0.0.1:8000`.
 - **Seven-day chart:** Shows input and output token bars for the seven-day window ending on the latest timestamped usage date, in UTC.
 - **Monthly token budget alerts:** Configure a monthly input-plus-output token limit. The dashboard and budget status command report a warning at 80% and an exceeded state at 100%. Monthly totals use timestamped records in the current UTC calendar month.
 - **CSV export:** Writes timestamp, UTC date, model, and token counts from the SQLite ledger to a spreadsheet-friendly CSV file.
@@ -63,6 +64,7 @@ Run `python -m agent_budget_guard.cli --help` for the root help and `python -m a
 | --- | --- |
 | `codex-usage` | Import local Codex session usage and print aggregate token totals and estimated cost. |
 | `dashboard` | Display ledger totals, available monthly budget status, daily usage, and the chart. |
+| `web` | Start the local read-only web dashboard on `127.0.0.1` (default port `8000`). |
 | `budget --tokens COUNT` | Save a positive monthly input-plus-output token budget. |
 | `budget-status` | Show current UTC month's usage against the configured budget. |
 | `export` | Export token-only usage records as CSV. |
@@ -75,6 +77,8 @@ Examples (run from the project root):
 ```bash
 python -m agent_budget_guard.cli codex-usage
 python -m agent_budget_guard.cli dashboard
+python -m agent_budget_guard.cli web
+python -m agent_budget_guard.cli web --port 8080
 python -m agent_budget_guard.cli budget --tokens 1000000
 python -m agent_budget_guard.cli budget-status
 python -m agent_budget_guard.cli export --format csv --output codex-usage.csv

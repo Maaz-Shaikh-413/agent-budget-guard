@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List
 
 import typer
+import uvicorn
 from rich.console import Console
 
 from agent_budget_guard.tracker import (
@@ -31,6 +32,7 @@ from agent_budget_guard.budget import (
     monthly_token_usage,
     set_monthly_budget,
 )
+from agent_budget_guard.web import create_app
 
 app = typer.Typer(
     help="Monitor AI coding agent budgets.",
@@ -326,6 +328,17 @@ def dashboard(
         for day, inputs, cached, outputs, records in daily_usage:
             console.print(f"{day} | {inputs} | {cached} | {outputs} | {records}")
         console.print(daily_token_chart(daily_usage))
+
+
+@app.command()
+def web(
+    database: Path = typer.Option(DEFAULT_IMPORT_DB, "--database", help="Path to the existing Codex usage SQLite ledger"),
+    config_file: Path = typer.Option(DEFAULT_CONFIG_FILE, "--config-file", help="Path to local budget config JSON"),
+    port: int = typer.Option(8000, "--port", min=1, max=65535, help="Local dashboard port"),
+):
+    """Start the local read-only web dashboard."""
+    console.print(f"[green]Dashboard available at http://127.0.0.1:{port}[/green]")
+    uvicorn.run(create_app(database, config_file), host="127.0.0.1", port=port)
 
 if __name__ == "__main__":
     app()
